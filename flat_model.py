@@ -726,10 +726,11 @@ with tf.variable_scope("qcell",  reuse=tf.AUTO_REUSE):
     outputsq, output_statesq = bidirectional_dynamic_rnn(lstmcfw, lstmcbw,  qq,  dtype = tf.float32)
 
 
-outx = tf.transpose(outx, [1,0,2])
-outq = tf.transpose(outq, [1,0,2])
+outx = outputsx #tf.transpose(outx, [1,0,2])
+outq = outputsq #tf.transpose(outq, [1,0,2])
 
-w = tf.get_variable( "w", shape = [batch_size, 1, 6*d])
+with tf.variable_scope("sec_layer", reuse=tf.AUTO_REUSE):
+    w = tf.get_variable( "w", shape = [batch_size, 1, 6*d])
 
 w_t = tf.tile(w, [ 1, WC*WQ, 1])
 
@@ -737,10 +738,10 @@ w_r = w_t
 
 h = outx
 u = outq
-h_stacked = tf.pack(h)
-u_stacked = tf.pack(u)
+h_stacked = tf.stack(h)
+u_stacked = tf.stack(u)
 
-
+print("shape of h_stacked ", h_stacked)
 h_aug = tf.tile( h_stacked, [ 1, WQ, 1])
 u_aug = tf.tile( u_stacked, [ 1, 1, WC])
 
