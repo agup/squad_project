@@ -893,7 +893,7 @@ with tf.variable_scope( "fin", reuse=tf.AUTO_REUSE):
 
     sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True))
 
-    optimizer = tf.train.AdadeltaOptimizer(0.5)
+    optimizer = tf.train.AdamOptimizer(0.0005)
 
 
     gvs = optimizer.compute_gradients(loss)
