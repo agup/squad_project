@@ -630,12 +630,12 @@ print(emb_mat)
 
 new_emb_mat = train_data.shared['new_emb_mat'] 
 print("new embat mat ", new_emb_mat)
-#emb_mat = tf.concat(0, [emb_mat.astype('float32'), new_emb_mat])
+emb_mat = tf.concat( [emb_mat.astype('float32'), new_emb_mat], 0)
 
 
 #print(emb_mat)
 
-emb_mat  = new_emb_mat
+
 
 #print(train_data.shared['inds'])
 #print(len(train_data.data['q']))
@@ -664,7 +664,7 @@ def _get_word(word):
 
 
 M = 1
-JX = 20*5
+JX = 20*4
 JQ = 30
 
 
@@ -720,14 +720,20 @@ with tf.variable_scope('backward', reuse=tf.AUTO_REUSE):
     lstmcfw = BasicLSTMCell(100, state_is_tuple = True)
     outputsx, output_statesx = bidirectional_dynamic_rnn(lstmcfw, lstmcbw, xx,  dtype = tf.float32)
     print("the shape of outputsx is ", outputsx)
+    print(" the shape of outputs states x ", output_statesx)
+    outx_fw, outx_bw = outputsx
+    outxx = tf.concat([outx_fw, outx_bw], axis = 2)
+    print('out xx ', outxx)
 with tf.variable_scope("qcell",  reuse=tf.AUTO_REUSE):
     lstmcbw = BasicLSTMCell(100, state_is_tuple = True)
     lstmcfw = BasicLSTMCell(100, state_is_tuple = True)
     outputsq, output_statesq = bidirectional_dynamic_rnn(lstmcfw, lstmcbw,  qq,  dtype = tf.float32)
+    outqfw, outqbw = outputsq
+    outqq = tf.concat([outqfw, outqbw], axis = 2)
+    print('out qq is ', outqq)
 
-
-outx = outputsx #tf.transpose(outx, [1,0,2])
-outq = outputsq #tf.transpose(outq, [1,0,2])
+outx = outxx #outputsx #tf.transpose(outx, [1,0,2])
+outq = outqq #outputsq #tf.transpose(outq, [1,0,2])
 
 with tf.variable_scope("sec_layer", reuse=tf.AUTO_REUSE):
     w = tf.get_variable( "w", shape = [batch_size, 1, 6*d])
@@ -738,8 +744,8 @@ w_r = w_t
 
 h = outx
 u = outq
-h_stacked = tf.stack(h)
-u_stacked = tf.stack(u)
+h_stacked = h#tf.stack(h)
+u_stacked = u #tf.stack(u)
 
 print("shape of h_stacked ", h_stacked)
 h_aug = tf.tile( h_stacked, [ 1, WQ, 1])
@@ -756,9 +762,11 @@ print("smask shape is ", s_mask)
 
 u_aug = tf.reshape( u_aug, [ batch_size, WC*WQ, 200])
 
-hu_conc = tf.concat( concat_dim = 2, values = [ h_aug, u_aug, tf.mul( h_aug, u_aug)])
+print('shape of u_aug ', u_aug)
 
-alpha = tf.mul( w_t, hu_conc)
+hu_conc = tf.concat( [ h_aug, u_aug, tf.multiply( h_aug, u_aug)], axis = 2)
+
+alpha = tf.multiply( w_t, hu_conc)
 alpha = tf.reduce_sum( alpha, 2)
 
 S = tf.reshape( alpha, [ batch_size, WC, WQ])
@@ -773,10 +781,10 @@ flat_s = tf.reshape(S_soft, [batch_size, WC*WQ, 1])
 flat_s = tf.tile(flat_s, [ 1, 1, 200])
 u_rep  = tf.tile( u_stacked , [ 1, WC, 1])
 
-produ = tf.mul( flat_s, u_rep)
+produ = tf.multiply( flat_s, u_rep)
 
 
-split_p = tf.split(split_dim = 1, num_split = WC, value = produ)
+split_p = tf.split(produ, WC, axis = 1 )
 u_tild = tf.reduce_sum(split_p, 2)
 u_tild = tf.transpose(u_tild, [1, 0, 2])
 
@@ -793,35 +801,56 @@ bt = tf.nn.softmax( tf.reduce_max(S, reduction_indices = [2]))
 btex = tf.expand_dims( bt, 2)
 b_til = tf.tile( btex, [ 1, 1, 2*d])
 
-elmul = tf.mul( h_stacked, b_til)
+elmul = tf.multiply( h_stacked, b_til)
 
 htild = tf.reduce_sum( elmul, 1)
 htild = tf.expand_dims( htild, 1)
 htild = tf.tile( htild, [ 1, WC, 1])
 
 
-with tf.variable_scope("finallayers"):
-    G = tf.concat( concat_dim = 2, values = [ h_stacked, u_tild, tf.mul( h_stacked, u_tild), tf.mul(h_stacked, htild)])
-    outg, gfw, gbw = bidirectional_dynamic_rnn( lstmc, lstmc, tf.unstack(tf.transpose(G, [1,0,2])), dtype = tf.float32)
-    outg = tf.transpose(outg, [1,0,2])
+with tf.variable_scope("finallayers", reuse=tf.AUTO_REUSE):
+    G = tf.concat( [ h_stacked, u_tild, tf.multiply( h_stacked, u_tild), tf.multiply(h_stacked, htild)], axis = 2)
+    print('shape of G is ', G)
+    lstmcbw = BasicLSTMCell(100, state_is_tuple = True)
+    lstmcfw = BasicLSTMCell(100, state_is_tuple = True)
+    outg, g_states = bidirectional_dynamic_rnn( lstmcfw, lstmcbw, G, dtype = tf.float32)
+    
+    outgfw , outgbw = outg
 
-with tf.variable_scope("double"):
-    outgg, gfw, gbw = bidirectional_dynamic_rnn ( lstmc, lstmc, tf.unstack(tf.transpose(outg, [1,0,2])), dtype = tf.float32)
-    outgg = tf.pack(outgg)
-    outgg = tf.transpose(outgg, [1,0,2])
+    print('outg fw, ', outgfw)
+    #outg = tf.transpose(outg, [1,0,2])
+    outg = tf.concat([outgfw, outgbw], axis = 2)
+    print('outg ', outg)
+    print('gfw ', outgfw)
+    print('gbw ', outgbw)
+with tf.variable_scope("double", reuse=tf.AUTO_REUSE):
+    lstmcbw = BasicLSTMCell(100, state_is_tuple = True)
+    lstmcfw = BasicLSTMCell(100, state_is_tuple = True)
+    outgg, gstates = bidirectional_dynamic_rnn ( lstmcfw, lstmcbw, outg, dtype = tf.float32)
+    #outgg = tf.pack(outgg)
+    #outgg = tf.transpose(outgg, [1,0,2])
+    outggfw, outggbw = outgg
+    outgg = tf.concat([outggfw, outggbw], axis = 2)
+    #outggfw, outggbw = outgg
+    print('shape of outggfw is ', outggfw)
 
 
-
-with tf.variable_scope( "fin"):
+with tf.variable_scope( "fin", reuse=tf.AUTO_REUSE):
     wf1 = tf.get_variable( "wf1", shape = [ batch_size, 1, 10*d])
     MN = outgg
-    p0 = tf.batch_matmul( wf1, tf.transpose( tf.concat ( concat_dim = 2, values = [ G, MN]), [ 0,2,1]))
+    print("shape og G", G)
+    print('shape of MN ', MN)
+    lstmcbw = BasicLSTMCell(100, state_is_tuple = True)
+    lstmcfw = BasicLSTMCell(100, state_is_tuple = True)
+    p0 = tf.matmul( wf1, tf.transpose( tf.concat (  [ G, MN], axis = 2), [0, 2, 1]))
     p0 = tf.reshape( p0, [ batch_size, M*JX])
     #p0 = tf.add(p0 , ( 1 - tf.cast(x_mask, 'float'))*VERY_NEGATIVE)
-    outm2, m2fw, m2bw = bidirectional_dynamic_rnn( lstmc, lstmc, tf.unstack(tf.transpose(MN, [1,0,2])), dtype = tf.float32)
-    
-    M2 = tf.pack(outm2)
-    M2 = tf.transpose(M2, [1,0,2])
+    outm2, m2states = bidirectional_dynamic_rnn( lstmcfw, lstmcbw, MN, dtype = tf.float32)
+    outm2fw, outm2bw = outm2
+   
+    #M2 = tf.pack(outm2)
+    #M2 = tf.transpose(M2, [1,0,2])
+    M2 = tf.concat([outm2fw, outm2bw], axis = 2)
     outggr = tf.reshape(outgg, [batch_size,M*JX, 2*d])
     a = tf.nn.softmax(p0)
     print("a hspae ", a)
@@ -832,48 +861,48 @@ with tf.variable_scope( "fin"):
     print("p0 t is ", p0t)
     #p0t = tf.tile( tf.expand_dims(tf.reshape(outgg, [batch_size, M*JX, 2*d], -1), [1, 1, 200])
     wf2 = tf.get_variable("wf2",  shape = [ batch_size, 1, 10*100])
-    p1 = tf.batch_matmul(wf2, tf.transpose(tf.concat(concat_dim = 2, values = [ G, M2]),[0,2,1]))
+    p1 = tf.matmul(wf2, tf.transpose( tf.concat( [ G, M2], axis = 2), [0, 2, 1]))
     p1 = tf.reshape( p1, [ batch_size, M*JX])
     #p1 = tf.add( p1, ( 1 - tf.cast( x_mask, 'float'))*VERY_NEGATIVE)
 
-lhs_inds = tf.placeholder(tf.int32, [batch_size])
-rhs_inds = tf.placeholder(tf.int32, [batch_size])
+    lhs_inds = tf.placeholder(tf.int32, [batch_size])
+    rhs_inds = tf.placeholder(tf.int32, [batch_size])
 
-lhs_acts = tf.placeholder( tf.int32, [ batch_size])
-rhs_acts = tf.placeholder( tf.int32, [ batch_size])
+    lhs_acts = tf.placeholder( tf.int32, [ batch_size])
+    rhs_acts = tf.placeholder( tf.int32, [ batch_size])
 
 
 
 #p0 = tf.nn.softmax(p0, -1)
 #p1 = tf.nn.softmax(p1, -1)
-p0g = tf.gather(tf.reshape(p0, [batch_size*M*JX]), lhs_inds)
-p1g = tf.gather(tf.reshape(p1, [batch_size*M*JX]), rhs_inds)
-ambeg = tf.argmax(p0, 1)
-amend  = tf.argmax(p1, 1)
+    p0g = tf.gather(tf.reshape(p0, [batch_size*M*JX]), lhs_inds)
+    p1g = tf.gather(tf.reshape(p1, [batch_size*M*JX]), rhs_inds)
+    ambeg = tf.argmax(p0, 1)
+    amend  = tf.argmax(p1, 1)
 
-fl = tf.log(p0g)
-sl = tf.log(p1g)
-
-
-logl = tf.one_hot(indices = lhs_acts, depth = M*JX )
-logr = tf.one_hot( indices = rhs_acts, depth = M*JX)
+    fl = tf.log(p0g)
+    sl = tf.log(p1g)
 
 
-loss = tf.reduce_mean( tf.nn.sparse_softmax_cross_entropy_with_logits(logits = p0 , labels = lhs_acts) + tf.nn.sparse_softmax_cross_entropy_with_logits(logits = p1, labels = rhs_acts) )#tf.reduce_mean(tf.mul ( fl + sl, tf.constant(-1.0)))
+    logl = tf.one_hot(indices = lhs_acts, depth = M*JX )
+    logr = tf.one_hot( indices = rhs_acts, depth = M*JX)
+
+
+    loss = tf.reduce_mean( tf.nn.sparse_softmax_cross_entropy_with_logits(logits = p0 , labels = lhs_acts) + tf.nn.sparse_softmax_cross_entropy_with_logits(logits = p1, labels = rhs_acts) )#tf.reduce_mean(tf.mul ( fl + sl, tf.constant(-1.0)))
                          
 
-sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True))
+    sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True))
 
-optimizer = tf.train.AdadeltaOptimizer(0.5)
+    optimizer = tf.train.AdadeltaOptimizer(0.5)
 
 
-gvs = optimizer.compute_gradients(loss)
-capped_gvs = [(tf.clip_by_value(grad, -1., 1.), var) for grad, var in gvs]
-train_op = optimizer.apply_gradients(capped_gvs)
+    gvs = optimizer.compute_gradients(loss)
+    capped_gvs = [(tf.clip_by_value(grad, -1., 1.), var) for grad, var in gvs]
+    train_op = optimizer.apply_gradients(capped_gvs)
 
-var_ema = tf.train.ExponentialMovingAverage(config.var_decay)
+    var_ema = tf.train.ExponentialMovingAverage(config.var_decay)
 
-ema_op = var_ema.apply(tf.trainable_variables())
+    ema_op = var_ema.apply(tf.trainable_variables())
 
 def get_batch_data():
     shufinds = train_data.shared['inds']
@@ -937,14 +966,14 @@ def get_batch_data():
 
 
 sess.run(tf.initialize_all_variables())
-saver = tf.train.Saver()
+#saver = tf.train.Saver()
 gentrain  = get_batch_data()
 for i in range(0, 100000000):
     xb, x_mb, q_mb,  qb, lhsb, rhsb, lact, ract = next(gentrain)
     fd = {xval: xb, x_mask: x_mb, q_mask: q_mb, qval: qb, lhs_inds: np.reshape(lhsb, (batch_size, )), rhs_inds: np.reshape( rhsb, (batch_size,)), lhs_acts : np.reshape( lact, (batch_size,)), rhs_acts : np.reshape( ract, (batch_size,))  }          
     print("iter", i)
-    if i % 1000 == 0:
-        saver.save(sess, "flat_trans_working") 
+    #if i % 1000 == 0:
+        #saver.save(sess, "flat_trans_working") 
     trop, lo = sess.run([train_op, loss], feed_dict = fd)
     sess.run([ema_op], feed_dict = fd )
     print(sess.run([ambeg], feed_dict = fd))
