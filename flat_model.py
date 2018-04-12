@@ -668,35 +668,35 @@ JX = 20*4
 JQ = 30
 
 
-
-xval = tf.placeholder(tf.int32, [batch_size, M*JX])
-qval = tf.placeholder(tf.int32, [batch_size, M*JQ])
-x_mask = tf.placeholder( 'bool', [ batch_size, M*JX])
-q_mask = tf.placeholder('bool', [batch_size, M*JQ])
+#replace batch_size by None so we can test
+xval = tf.placeholder(tf.int32, [None, M*JX])
+qval = tf.placeholder(tf.int32, [None, M*JQ])
+x_mask = tf.placeholder( 'bool', [ None , M*JX])
+q_mask = tf.placeholder('bool', [None , M*JQ])
 Ax = tf.nn.embedding_lookup(emb_mat, xval)
 Aq = tf.nn.embedding_lookup(emb_mat, qval)
-
-Axx = tf.reshape(Ax, [ batch_size*M*JX, d])
+b_sz = tf.shape(xval)[0]
+Axx = tf.reshape(Ax, [ b_sz*M*JX, d])
 
 #with tf.variable_scope("hway2"):
 trans = _linear([Axx], d, True)
-trans = tf.reshape(trans, [ batch_size, M*JX, d])
+trans = tf.reshape(trans, [ -1, M*JX, d])
 trans = tf.nn.relu(trans)
 tf.get_variable_scope().reuse_variables()
 gate = _linear(Axx, d, True)
-gate = tf.reshape( gate, [ batch_size, M*JX, d])
+gate = tf.reshape( gate, [ -1, M*JX, d])
 gate = tf.nn.sigmoid(gate)
-Axx = tf.reshape( Axx, [batch_size, M*JX, d])
+Axx = tf.reshape( Axx, [ -1 , M*JX, d])
 Axx = gate*trans + (1- gate)*Axx
-Aq= tf.reshape(Aq, [ batch_size*M*JQ, d])
+Aq= tf.reshape(Aq, [ b_sz*M*JQ, d])
 #tf.get_variable_scope().reuse_variables()
 trans = _linear( [Aq], d, True)
-trans = tf.reshape( trans, [ batch_size, M*JQ, d])
+trans = tf.reshape( trans, [ -1, M*JQ, d])
 trans = tf.nn.relu(trans)
 gate = _linear( Aq, d, True)
-gate = tf.reshape( gate, [batch_size, M*JQ, d])
+gate = tf.reshape( gate, [ -1, M*JQ, d])
 gate = tf.nn.sigmoid(gate)
-Aqq = tf.reshape(Aq, [batch_size, M*JQ, d])
+Aqq = tf.reshape(Aq, [ -1 , M*JQ, d])
 Aqq = gate*trans + (1 - gate)*Aqq
 
 
@@ -736,9 +736,9 @@ outx = outxx #outputsx #tf.transpose(outx, [1,0,2])
 outq = outqq #outputsq #tf.transpose(outq, [1,0,2])
 
 with tf.variable_scope("sec_layer", reuse=tf.AUTO_REUSE):
-    w = tf.get_variable( "w", shape = [batch_size, 1, 6*d])
+    w = tf.get_variable( "w", shape =  [1, 1, 6*d], dtype = 'float')
 
-w_t = tf.tile(w, [ 1, WC*WQ, 1])
+w_t = tf.tile(w, [ b_sz , WC*WQ, 1])
 
 w_r = w_t
 
@@ -760,7 +760,7 @@ s_mask = h_mask & u_mask
 print("smask shape is ", s_mask)
 
 
-u_aug = tf.reshape( u_aug, [ batch_size, WC*WQ, 200])
+u_aug = tf.reshape( u_aug, [ -1 , WC*WQ, 200])
 
 print('shape of u_aug ', u_aug)
 
@@ -769,7 +769,7 @@ hu_conc = tf.concat( [ h_aug, u_aug, tf.multiply( h_aug, u_aug)], axis = 2)
 alpha = tf.multiply( w_t, hu_conc)
 alpha = tf.reduce_sum( alpha, 2)
 
-S = tf.reshape( alpha, [ batch_size, WC, WQ])
+S = tf.reshape( alpha, [ -1 , WC, WQ])
 S = tf.add(S, (1 - tf.cast(s_mask, 'float'))*VERY_NEGATIVE )
 
 
@@ -777,7 +777,7 @@ S = tf.add(S, (1 - tf.cast(s_mask, 'float'))*VERY_NEGATIVE )
 
 S_soft =tf.map_fn ( lambda x : tf.nn.softmax(x), S)
 
-flat_s = tf.reshape(S_soft, [batch_size, WC*WQ, 1])
+flat_s = tf.reshape(S_soft, [ -1 , WC*WQ, 1])
 flat_s = tf.tile(flat_s, [ 1, 1, 200])
 u_rep  = tf.tile( u_stacked , [ 1, WC, 1])
 
@@ -836,14 +836,15 @@ with tf.variable_scope("double", reuse=tf.AUTO_REUSE):
 
 
 with tf.variable_scope( "fin", reuse=tf.AUTO_REUSE):
-    wf1 = tf.get_variable( "wf1", shape = [ batch_size, 1, 10*d])
+    wf1 = tf.get_variable( "wf1", shape = [1 , 1, 10*d])
+    wf1 = tf.tile(wf1, [b_sz,1, 1])
     MN = outgg
     print("shape og G", G)
     print('shape of MN ', MN)
     lstmcbw = BasicLSTMCell(100, state_is_tuple = True)
     lstmcfw = BasicLSTMCell(100, state_is_tuple = True)
     p0 = tf.matmul( wf1, tf.transpose( tf.concat (  [ G, MN], axis = 2), [0, 2, 1]))
-    p0 = tf.reshape( p0, [ batch_size, M*JX])
+    p0 = tf.reshape( p0, [ -1 , M*JX])
     #p0 = tf.add(p0 , ( 1 - tf.cast(x_mask, 'float'))*VERY_NEGATIVE)
     outm2, m2states = bidirectional_dynamic_rnn( lstmcfw, lstmcbw, MN, dtype = tf.float32)
     outm2fw, outm2bw = outm2
@@ -851,7 +852,7 @@ with tf.variable_scope( "fin", reuse=tf.AUTO_REUSE):
     #M2 = tf.pack(outm2)
     #M2 = tf.transpose(M2, [1,0,2])
     M2 = tf.concat([outm2fw, outm2bw], axis = 2)
-    outggr = tf.reshape(outgg, [batch_size,M*JX, 2*d])
+    outggr = tf.reshape(outgg, [-1 ,M*JX, 2*d])
     a = tf.nn.softmax(p0)
     print("a hspae ", a)
    
@@ -859,24 +860,26 @@ with tf.variable_scope( "fin", reuse=tf.AUTO_REUSE):
     print("outshpa ie ", out)
     p0t = tf.tile(tf.expand_dims( out , 1), [1, M*JX, 1])
     print("p0 t is ", p0t)
-    #p0t = tf.tile( tf.expand_dims(tf.reshape(outgg, [batch_size, M*JX, 2*d], -1), [1, 1, 200])
-    wf2 = tf.get_variable("wf2",  shape = [ batch_size, 1, 10*100])
+    #p0t = tf.tile( tf.expand_dims(tf.reshape(outgg, [-1 , M*JX, 2*d], -1), [1, 1, 200])
+    wf2 = tf.get_variable("wf2", shape = [ 1 , 1, 10*100])
+
+    wf2 = tf.tile(wf2, [b_sz, 1, 1])
     p1 = tf.matmul(wf2, tf.transpose( tf.concat( [ G, M2], axis = 2), [0, 2, 1]))
-    p1 = tf.reshape( p1, [ batch_size, M*JX])
+    p1 = tf.reshape( p1, [ -1 , M*JX])
     #p1 = tf.add( p1, ( 1 - tf.cast( x_mask, 'float'))*VERY_NEGATIVE)
 
     lhs_inds = tf.placeholder(tf.int32, [batch_size])
-    rhs_inds = tf.placeholder(tf.int32, [batch_size])
+    rhs_inds = tf.placeholder(tf.int32, [ batch_size])
 
-    lhs_acts = tf.placeholder( tf.int32, [ batch_size])
-    rhs_acts = tf.placeholder( tf.int32, [ batch_size])
+    lhs_acts = tf.placeholder( tf.int32, [ batch_size ])
+    rhs_acts = tf.placeholder( tf.int32, [ batch_size ])
 
 
 
 #p0 = tf.nn.softmax(p0, -1)
 #p1 = tf.nn.softmax(p1, -1)
-    p0g = tf.gather(tf.reshape(p0, [batch_size*M*JX]), lhs_inds)
-    p1g = tf.gather(tf.reshape(p1, [batch_size*M*JX]), rhs_inds)
+    p0g = tf.gather(tf.reshape(p0, [b_sz*M*JX]), lhs_inds)
+    p1g = tf.gather(tf.reshape(p1, [b_sz*M*JX]), rhs_inds)
     ambeg = tf.argmax(p0, 1)
     amend  = tf.argmax(p1, 1)
 
@@ -904,8 +907,8 @@ with tf.variable_scope( "fin", reuse=tf.AUTO_REUSE):
 
     ema_op = var_ema.apply(tf.trainable_variables())
 
-def get_batch_data():
-    shufinds = train_data.shared['inds']
+def get_batch_data(input_data):
+    shufinds = input_data.shared['inds']
     random.shuffle(shufinds)
     shufinds = itertools.cycle(shufinds)
     while(True): 
@@ -965,10 +968,80 @@ def get_batch_data():
         yield x, x_mask,q_mask,   q, lhs, rhs, lhs_acts, rhs_acts
 
 
+
+def make_preds(input_data):
+    shufinds = input_data.shared['inds']
+    #random.shuffle(shufinds)
+    shufinds = itertools.cycle(shufinds)
+    for ind in shufinds:
+        lhs = [] 
+        rhs = []
+        rhs_acts = []
+        lhs_acts = []
+        bind = 0
+        x = np.zeros([ batch_size, M*JX], dtype = 'int32')
+        q = np.zeros( [ batch_size, M*JQ], dtype = 'int32')
+        x_mask = np.zeros([batch_size, M*JX], dtype = 'bool')
+        q_mask = np.zeros([batch_size, M*JQ], dtype = 'bool')
+            
+        while len(lhs) < batch_size:
+            smp = next(shufinds)
+            too_large = False
+            index = 0
+            artind = ind[0] #smp[0]
+            parind = ind[1] #smp[1]
+            qind = ind[2] #smp[2] 
+            for i, xi in enumerate(input_data.shared['x'][artind][parind]):
+                for j, xj in enumerate(xi):
+                    each = _get_word(xj) 
+                    if index < M*JX: 
+                        x[bind, index] = each
+                        x_mask[bind, index]= True
+                    else: 
+                        too_large = True
+                    index += 1
+            ques = input_data.data['q'][qind]
+            for i, word in enumerate(ques):
+                if i < M*JQ:
+                    q[bind, i] = _get_word(word)
+                    q_mask[bind, i] = True
+                else:
+                    too_large = True
+             
+            ans = input_data.data['y'][qind]
+            
+            lh = ans[0][0][1]
+            rh = ans[0][1][1]
+            
+                
+            if (not lh < JX) or not (rh < JX):
+                too_large = True
+            if too_large:
+                q[bind, :] =0
+                x[bind, :] = 0
+                x_mask[bind, :] = 0
+                q_mask[bind, :] = 0   
+            if not too_large:
+                lhs.append([M*JX*bind + lh])
+                rhs.append([M*JX*bind + rh])
+                lhs_acts.append([lh])
+                rhs_acts.append([rh])
+                bind += 1
+           
+           
+        yield x, x_mask,q_mask,  q , lhs, rhs, lhs_acts, rhs_acts
+
+
+
+
 sess.run(tf.initialize_all_variables())
 #saver = tf.train.Saver()
-gentrain  = get_batch_data()
-for i in range(0, 100000000):
+gentrain  = get_batch_data(train_data)
+
+make_pred_dev = make_preds(dev_data)
+
+
+for i in range(0, 100000000000000):
     xb, x_mb, q_mb,  qb, lhsb, rhsb, lact, ract = next(gentrain)
     fd = {xval: xb, x_mask: x_mb, q_mask: q_mb, qval: qb, lhs_inds: np.reshape(lhsb, (batch_size, )), rhs_inds: np.reshape( rhsb, (batch_size,)), lhs_acts : np.reshape( lact, (batch_size,)), rhs_acts : np.reshape( ract, (batch_size,))  }          
     print("iter", i)
@@ -984,4 +1057,14 @@ for i in range(0, 100000000):
     print( "p1 is ", sess.run( [p1], feed_dict= fd))
     print(lact)
     print(ract)
-    print("loss ", lo) 
+    print("loss ", lo)
+
+
+
+for i in range(0, 10):
+    xb, x_mb, q_mb,  qb, lhsb, rhsb, lact, ract = next(make_pred_dev)
+
+    fd = {xval: xb, x_mask: x_mb, q_mask: q_mb, qval: qb, lhs_inds: np.reshape(lhsb, (batch_size, )), rhs_inds: np.reshape( rhsb, (batch_size,)), lhs_acts : np.reshape( lact, (batch_size,)), rhs_acts : np.reshape( ract, (batch_size,))  }
+    print("iter", i)
+    print("p0 is ", sess.run([p0], feed_dict = fd))
+    print( "p1 is ", sess.run( [p1], feed_dict= fd))
