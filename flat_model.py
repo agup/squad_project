@@ -868,11 +868,11 @@ with tf.variable_scope( "fin", reuse=tf.AUTO_REUSE):
     p1 = tf.reshape( p1, [ -1 , M*JX])
     #p1 = tf.add( p1, ( 1 - tf.cast( x_mask, 'float'))*VERY_NEGATIVE)
 
-    lhs_inds = tf.placeholder(tf.int32, [batch_size])
-    rhs_inds = tf.placeholder(tf.int32, [ batch_size])
+    lhs_inds = tf.placeholder(tf.int32, [None])
+    rhs_inds = tf.placeholder(tf.int32, [ None ])
 
-    lhs_acts = tf.placeholder( tf.int32, [ batch_size ])
-    rhs_acts = tf.placeholder( tf.int32, [ batch_size ])
+    lhs_acts = tf.placeholder( tf.int32, [ None  ])
+    rhs_acts = tf.placeholder( tf.int32, [ None ])
 
 
 
@@ -969,79 +969,91 @@ def get_batch_data(input_data):
 
 
 
-def make_preds(input_data):
+def make_preds(input_data, sess):
     shufinds = input_data.shared['inds']
     #random.shuffle(shufinds)
     shufinds = itertools.cycle(shufinds)
     for ind in shufinds:
-        lhs = [] 
-        rhs = []
-        rhs_acts = []
-        lhs_acts = []
+        lhs2 = [] 
+        rhs2 = []
+        rhs_acts2 = []
+        lhs_acts2 = []
         bind = 0
-        x = np.zeros([ batch_size, M*JX], dtype = 'int32')
-        q = np.zeros( [ batch_size, M*JQ], dtype = 'int32')
-        x_mask = np.zeros([batch_size, M*JX], dtype = 'bool')
-        q_mask = np.zeros([batch_size, M*JQ], dtype = 'bool')
+        x2 = np.zeros([ 1, M*JX], dtype = 'int32')
+        q2 = np.zeros( [ 1, M*JQ], dtype = 'int32')
+        x_mask2 = np.zeros([ 1 , M*JX], dtype = 'bool')
+        q_mask2 = np.zeros([ 1 , M*JQ], dtype = 'bool')
             
-        while len(lhs) < batch_size:
-            smp = next(shufinds)
-            too_large = False
-            index = 0
-            artind = ind[0] #smp[0]
-            parind = ind[1] #smp[1]
-            qind = ind[2] #smp[2] 
-            for i, xi in enumerate(input_data.shared['x'][artind][parind]):
-                for j, xj in enumerate(xi):
-                    each = _get_word(xj) 
-                    if index < M*JX: 
-                        x[bind, index] = each
-                        x_mask[bind, index]= True
-                    else: 
-                        too_large = True
-                    index += 1
-            ques = input_data.data['q'][qind]
-            for i, word in enumerate(ques):
-                if i < M*JQ:
-                    q[bind, i] = _get_word(word)
-                    q_mask[bind, i] = True
-                else:
+        
+        smp = next(shufinds)
+        too_large = False
+        index = 0
+        artind = ind[0] #smp[0]
+        parind = ind[1] #smp[1]
+        qind = ind[2] #smp[2] 
+        for i, xi in enumerate(input_data.shared['x'][artind][parind]):
+            for j, xj in enumerate(xi):
+                each = _get_word(xj) 
+                if index < M*JX: 
+                    x2[bind, index] = each
+                    x_mask2[bind, index]= True
+                else: 
                     too_large = True
+                index += 1
+        ques = input_data.data['q'][qind]
+        for i, word in enumerate(ques):
+            if i < M*JQ:
+                q2[bind, i] = _get_word(word)
+                q_mask2[bind, i] = True
+            else:
+                too_large = True
              
-            ans = input_data.data['y'][qind]
+        ans = input_data.data['y'][qind]
             
-            lh = ans[0][0][1]
-            rh = ans[0][1][1]
+        lh = ans[0][0][1]
+        rh = ans[0][1][1]
             
                 
-            if (not lh < JX) or not (rh < JX):
-                too_large = True
-            if too_large:
-                q[bind, :] =0
-                x[bind, :] = 0
-                x_mask[bind, :] = 0
-                q_mask[bind, :] = 0   
-            if not too_large:
-                lhs.append([M*JX*bind + lh])
-                rhs.append([M*JX*bind + rh])
-                lhs_acts.append([lh])
-                rhs_acts.append([rh])
-                bind += 1
+        if (not lh < JX) or not (rh < JX):
+            too_large = True
+        if too_large:
+            '''
+            q[bind, :] =0
+            x[bind, :] = 0
+            x_mask[bind, :] = 0
+            q_mask[bind, :] = 0
+            '''
+            lhs2.append([M*JX*bind + lh])
+            rhs2.append([M*JX*bind + rh])
+            lhs_acts2.append([lh])
+            rhs_acts2.append([rh])
+   
+        if not too_large:
+            lhs2.append([M*JX*bind + lh])
+            rhs2.append([M*JX*bind + rh])
+            lhs_acts2.append([lh])
+            rhs_acts2.append([rh])
+            #bind += 1
            
-           
-        yield x, x_mask,q_mask,  q , lhs, rhs, lhs_acts, rhs_acts
-
-
+        #print('lact ', lact)   
+        xb, x_mb, q_mb,  qb, lhsb, rhsb, lact, ract = x2, x_mask2 , q_mask2,  q2 , lhs2, rhs2, lhs_acts2, rhs_acts2
+        print(' lact ', lact, ' ract ', ract , ' rhbs ', rhsb, 'lhsb ', lhsb)
+        print(np.shape(lact))
+        fd = {xval: xb, x_mask: x_mb, q_mask: q_mb, qval: qb, lhs_inds: np.reshape(lhsb, (1, )), rhs_inds: np.reshape( rhsb, (1,)), lhs_acts : np.reshape( lact, (1,)), rhs_acts : np.reshape( ract, (1,))  }
+        
+        print("the id is ", input_data.data['ids'][qind])
+        p0_calc = sess.run([p0], feed_dict = fd)
+        p1_calc = sess.run( [p1], feed_dict= fd)
+        print("p0 is ", p0_calc)
+        print( "p1 is ", p0_calc)
+        print("start ind ", np.argmax(p0_calc))
 
 
 sess.run(tf.initialize_all_variables())
 #saver = tf.train.Saver()
 gentrain  = get_batch_data(train_data)
 
-make_pred_dev = make_preds(dev_data)
-
-
-for i in range(0, 100000000000000):
+for i in range(0, 5):
     xb, x_mb, q_mb,  qb, lhsb, rhsb, lact, ract = next(gentrain)
     fd = {xval: xb, x_mask: x_mb, q_mask: q_mb, qval: qb, lhs_inds: np.reshape(lhsb, (batch_size, )), rhs_inds: np.reshape( rhsb, (batch_size,)), lhs_acts : np.reshape( lact, (batch_size,)), rhs_acts : np.reshape( ract, (batch_size,))  }          
     print("iter", i)
@@ -1061,10 +1073,6 @@ for i in range(0, 100000000000000):
 
 
 
-for i in range(0, 10):
-    xb, x_mb, q_mb,  qb, lhsb, rhsb, lact, ract = next(make_pred_dev)
+make_preds(dev_data, sess)
 
-    fd = {xval: xb, x_mask: x_mb, q_mask: q_mb, qval: qb, lhs_inds: np.reshape(lhsb, (batch_size, )), rhs_inds: np.reshape( rhsb, (batch_size,)), lhs_acts : np.reshape( lact, (batch_size,)), rhs_acts : np.reshape( ract, (batch_size,))  }
-    print("iter", i)
-    print("p0 is ", sess.run([p0], feed_dict = fd))
-    print( "p1 is ", sess.run( [p1], feed_dict= fd))
+
