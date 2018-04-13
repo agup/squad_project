@@ -7,4 +7,6 @@ out/basic/00
 
 data/squad
 
+if you get some error involving pandas try:
 
+pip install dask --upgrade

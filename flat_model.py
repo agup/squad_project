@@ -970,10 +970,12 @@ def get_batch_data(input_data):
 
 
 def make_preds(input_data, sess):
+    ans_dict = {}
     shufinds = input_data.shared['inds']
     #random.shuffle(shufinds)
-    shufinds = itertools.cycle(shufinds)
-    for ind in shufinds:
+    #shufinds = itertools.cycle(shufinds)
+    for l in tqdm( range(len( shufinds))):
+        ind = shufinds[l]
         lhs2 = [] 
         rhs2 = []
         rhs_acts2 = []
@@ -985,7 +987,7 @@ def make_preds(input_data, sess):
         q_mask2 = np.zeros([ 1 , M*JQ], dtype = 'bool')
             
         
-        smp = next(shufinds)
+        #smp = next(shufinds)
         too_large = False
         index = 0
         artind = ind[0] #smp[0]
@@ -1037,20 +1039,26 @@ def make_preds(input_data, sess):
            
         #print('lact ', lact)   
         xb, x_mb, q_mb,  qb, lhsb, rhsb, lact, ract = x2, x_mask2 , q_mask2,  q2 , lhs2, rhs2, lhs_acts2, rhs_acts2
-        print(' lact ', lact, ' ract ', ract , ' rhbs ', rhsb, 'lhsb ', lhsb)
-        print(np.shape(lact))
+        #print(' lact ', lact, ' ract ', ract , ' rhbs ', rhsb, 'lhsb ', lhsb)
+        #print(np.shape(lact))
         fd = {xval: xb, x_mask: x_mb, q_mask: q_mb, qval: qb, lhs_inds: np.reshape(lhsb, (1, )), rhs_inds: np.reshape( rhsb, (1,)), lhs_acts : np.reshape( lact, (1,)), rhs_acts : np.reshape( ract, (1,))  }
         
-        print("the id is ", input_data.data['ids'][qind])
+        #print("the id is ", input_data.data['ids'][qind])
         p0_calc = sess.run([p0], feed_dict = fd)
         p1_calc = sess.run( [p1], feed_dict= fd)
-        print("p0 is ", p0_calc)
-        print( "p1 is ", p0_calc)
+        #print("p0 is ", p0_calc)
+        #print( "p1 is ", p0_calc)
         start  =  np.argmax(p0_calc)
-        print("start ind ", start)
+        #print("start ind ", start)
         end = np.argmax(p1_calc)
-        print("end ind ", end)
-        print("the answer is ", input_data.shared['x'][artind][parind][0][start:end])
+        #print("end ind ", end)
+        #print("the answer is ", input_data.shared['x'][artind][parind][0][start:end])
+        formatted_ans = ""
+        for word in input_data.shared['x'][artind][parind][0][start:end]:
+            formatted_ans += ' ' + word
+        ans_dict[input_data.data['ids'][qind]] = formatted_ans
+        #print(ans_dict)
+    return ans_dict
 
 sess.run(tf.initialize_all_variables())
 #saver = tf.train.Saver()
@@ -1078,6 +1086,6 @@ for i in range(0, 5):
 
 
 
-make_preds(dev_data, sess)
-
+answer_d = make_preds(dev_data, sess)
+json.dump(answer_d, open('output/answers.json', 'w'))
 
