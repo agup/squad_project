@@ -1066,6 +1066,8 @@ gentrain  = get_batch_data(train_data)
 
 print(train_data.shared['x'][0][1][0][0:10])
 
+saver.restore(sess, "/Users/arushigupta/Desktop/squad/output/squad_model.ckpt")
+
 for i in range(0, 5):
     xb, x_mb, q_mb,  qb, lhsb, rhsb, lact, ract = next(gentrain)
     fd = {xval: xb, x_mask: x_mb, q_mask: q_mb, qval: qb, lhs_inds: np.reshape(lhsb, (batch_size, )), rhs_inds: np.reshape( rhsb, (batch_size,)), lhs_acts : np.reshape( lact, (batch_size,)), rhs_acts : np.reshape( ract, (batch_size,))  }          
@@ -1086,6 +1088,6 @@ for i in range(0, 5):
 
 
 
-answer_d = make_preds(dev_data, sess)
-json.dump(answer_d, open('output/answers.json', 'w'))
+#answer_d = make_preds(dev_data, sess)
+#json.dump(answer_d, open('output/answers.json', 'w'))
 
