@@ -1046,12 +1046,17 @@ def make_preds(input_data, sess):
         p1_calc = sess.run( [p1], feed_dict= fd)
         print("p0 is ", p0_calc)
         print( "p1 is ", p0_calc)
-        print("start ind ", np.argmax(p0_calc))
-
+        start  =  np.argmax(p0_calc)
+        print("start ind ", start)
+        end = np.argmax(p1_calc)
+        print("end ind ", end)
+        print("the answer is ", input_data.shared['x'][artind][parind][0][start:end])
 
 sess.run(tf.initialize_all_variables())
 #saver = tf.train.Saver()
 gentrain  = get_batch_data(train_data)
+
+print(train_data.shared['x'][0][1][0][0:10])
 
 for i in range(0, 5):
     xb, x_mb, q_mb,  qb, lhsb, rhsb, lact, ract = next(gentrain)
