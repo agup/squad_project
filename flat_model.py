@@ -25,7 +25,7 @@ from tensorflow.python.ops.rnn import bidirectional_dynamic_rnn
 d = 100
 VERY_NEGATIVE = -1e30
 
-batch_size  = 1
+batch_size  = 40
 
 
 def get_2d_spans(text, tokenss):
@@ -1144,11 +1144,11 @@ for i in range(0, 20):
     fd = {xval: xb, x_mask: x_mb, q_mask: q_mb, qval: qb, lhs_inds: np.reshape(lhsb, (batch_size, )), rhs_inds: np.reshape( rhsb, (batch_size,)), lhs_acts : np.reshape( lact, (batch_size,)), rhs_acts : np.reshape( ract, (batch_size,))  }          
     print("iter", i)
    
-    '''
+   
     if i % 1000 == 0:
         saver.save(sess, "/Users/arushigupta/Desktop/squad/output/squad_modelII.ckpt") 
-    '''
-    '''
+    
+    
     trop, lo = sess.run([train_op, loss], feed_dict = fd)
     sess.run([ema_op], feed_dict = fd )
     print(sess.run([ambeg], feed_dict = fd))
@@ -1161,7 +1161,7 @@ for i in range(0, 20):
     print(lact)
     print(ract)
     print("loss ", lo)
-    '''
+    
 
 
 answer_d = make_preds(dev_data, sess)
