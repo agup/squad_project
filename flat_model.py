@@ -1,7 +1,7 @@
 import re
 import sys
 from collections import Counter
-
+from random import sample
 sys.path.append('/Library/Frameworks/Python.framework/Versions/3.6/lib/python3.6/site-packages')
 import argparse
 import json
@@ -25,7 +25,7 @@ from tensorflow.python.ops.rnn import bidirectional_dynamic_rnn
 d = 100
 VERY_NEGATIVE = -1e30
 
-batch_size  = 60
+batch_size  = 1
 
 
 def get_2d_spans(text, tokenss):
@@ -201,6 +201,8 @@ def prepro_each(args, data_type, start_ratio=0.0, stop_ratio=1.0, out_name="defa
     inds = []
 
     qind = -1
+    ans_ind_s = 0
+    ans_ind_e = -1
     word_counter, char_counter, lower_word_counter = Counter(), Counter(), Counter()
     start_ai = int(round(len(source_data['data']) * start_ratio))
     stop_ai = int(round(len(source_data['data']) * stop_ratio))
@@ -265,28 +267,31 @@ def prepro_each(args, data_type, start_ratio=0.0, stop_ratio=1.0, out_name="defa
                     assert cyi1 < 32, (answer_text, w1)
 
                     yi.append([yi0, yi1])
+                    ans_ind_e += 1
                     cyi.append([cyi0, cyi1])
                     #qind += 1
                     #inds.append([ai, pi, qind])
 
                
-            for qij in qi:
-                word_counter[qij] += 1
-                lower_word_counter[qij.lower()] += 1
-                for qijk in qij:
-                    char_counter[qijk] += 1
+                for qij in qi:
+                    word_counter[qij] += 1
+                    lower_word_counter[qij.lower()] += 1
+                    for qijk in qij:
+                        char_counter[qijk] += 1
 
-            q.append(qi)
-            qind += 1
-            cq.append(cqi)
-            y.append(yi)
-            cy.append(cyi)
-            rx.append(rxi)
-            rcx.append(rxi)
-            inds.append([ai, pi, qind])
-            ids.append(qa['id'])
-            idxs.append(len(idxs))
-            answerss.append(answers)
+                q.append(qi)
+                qind += 1
+                cq.append(cqi)
+                y.append(yi)
+                cy.append(cyi)
+                rx.append(rxi)
+                rcx.append(rxi)
+                inds.append([ai, pi, qind, len(answers), ans_ind_s + len(answers)])
+                ans_ind_s += len(answers)
+                ids.append(qa['id'])
+                idxs.append(len(idxs))
+                answerss.append(answers)
+                #ans_ind += 1
 
         if args.debug:
             break
@@ -607,8 +612,8 @@ out_dir = os.path.join(config.out_base_dir, config.model_name, str(config.run_id
 
 
 #Please uncomment the following two lines when runninng for the first time
-#prepro_each(args, 'train', out_name='train')
-#prepro_each(args, 'dev', out_name='dev')
+prepro_each(args, 'train', out_name='train')
+prepro_each(args, 'dev', out_name='dev')
 
 
 
@@ -663,9 +668,13 @@ def _get_word(word):
 
 
 
-M = 1
-JX = 20*4
-JQ = 30
+#M = 1
+#JX = 20*4
+#JQ = 30
+
+M = config.max_num_sents
+JX = config.max_sent_size
+JQ = config.max_ques_size
 
 
 #replace batch_size by None so we can test
@@ -876,8 +885,8 @@ with tf.variable_scope( "fin", reuse=tf.AUTO_REUSE):
 
 
 
-#p0 = tf.nn.softmax(p0, -1)
-#p1 = tf.nn.softmax(p1, -1)
+    p0_soft = tf.nn.softmax(p0, -1)
+    p1_soft = tf.nn.softmax(p1, -1)
     p0g = tf.gather(tf.reshape(p0, [b_sz*M*JX]), lhs_inds)
     p1g = tf.gather(tf.reshape(p1, [b_sz*M*JX]), rhs_inds)
     ambeg = tf.argmax(p0, 1)
@@ -909,7 +918,8 @@ with tf.variable_scope( "fin", reuse=tf.AUTO_REUSE):
 
 def get_batch_data(input_data):
     shufinds = input_data.shared['inds']
-    random.shuffle(shufinds)
+    #REMOVE THIS LINE FOR THE REAL DEAL
+    #random.shuffle(shufinds)
     shufinds = itertools.cycle(shufinds)
     while(True): 
         lhs = []
@@ -929,6 +939,19 @@ def get_batch_data(input_data):
             artind = smp[0]
             parind = smp[1]
             qind = smp[2]
+            ans_ind = smp[3]
+            ans_end = smp[4]
+            print('the context is', train_data.shared['x'][artind][parind] )
+            print('the question is ', train_data.data['q'][qind])
+
+            ans = input_data.data['y'][qind]
+            samp_ans = sample(range(0, ans_ind), 1)[0]
+            ans = ans[samp_ans]
+ 
+            lh = ans[0][1]
+            rh = ans[1][1]
+            print('and the answer is ', train_data.shared['x'][artind][parind][0][lh:rh])
+ 
             for i, xi in enumerate(train_data.shared['x'][artind][parind]):
                 for j, xj in enumerate(xi):
                     each = _get_word(xj)
@@ -945,12 +968,7 @@ def get_batch_data(input_data):
                     q_mask[bind, i] = True
                 else:
                     too_large = True
-
-            ans = train_data.data['y'][qind]
             
-            lh = ans[0][0][1]
-            rh = ans[0][1][1]
- 
 
             if (not lh < JX) or not (rh < JX):
                 too_large = True
@@ -967,6 +985,42 @@ def get_batch_data(input_data):
                 bind += 1
         yield x, x_mask,q_mask,   q, lhs, rhs, lhs_acts, rhs_acts
 
+
+
+def find_max_prob(a, b):
+    
+    a_ind = 0
+    b_ind = 0
+    felem_a = a[a_ind]
+    lelem_b  = b[b_ind]
+
+    cur_max_a = 0
+    cur_max_b = 0
+    walk_b = True
+    while  b_ind < len(b) and a_ind < len(a) -1   :
+        if b_ind + 1 < len(b) and b[b_ind + 1] < b[cur_max_b] and walk_b:
+            b_ind += 1
+        elif b_ind + 1 < len(b) and b[b_ind + 1] >= b[cur_max_b] and walk_b:
+            b_ind += 1
+            cur_max_b = b_ind
+            walk_b = False
+        elif a_ind + 1 < cur_max_b:
+            if a[a_ind + 1] > a[cur_max_a]:
+                cur_max_a = a_ind + 1
+            a_ind += 1
+        elif a_ind + 1 == cur_max_b:
+            walk_b = True
+            if a[a_ind + 1] > a[cur_max_a]:
+                cur_max_a = a_ind + 1
+            a_ind += 1
+        else:
+            a_ind += 1
+            b_ind = a_ind
+            if a[a_ind]*b[b_ind] > a[cur_max_a]*b[cur_max_b]:
+                cur_max_a = a_ind
+                cur_max_b = b_ind
+            walk_b = True
+    return cur_max_a , cur_max_b
 
 
 def make_preds(input_data, sess):
@@ -993,6 +1047,10 @@ def make_preds(input_data, sess):
         artind = ind[0] #smp[0]
         parind = ind[1] #smp[1]
         qind = ind[2] #smp[2] 
+        ans_ind = ind[3]
+        ans_end = ind[4]
+        print('the context is', input_data.shared['x'][artind][parind] )
+        print('the question is ', input_data.data['q'][qind])
         for i, xi in enumerate(input_data.shared['x'][artind][parind]):
             for j, xj in enumerate(xi):
                 each = _get_word(xj) 
@@ -1011,11 +1069,25 @@ def make_preds(input_data, sess):
                 too_large = True
              
         ans = input_data.data['y'][qind]
-            
-        lh = ans[0][0][1]
-        rh = ans[0][1][1]
-            
+         
+        samp_ans = sample(range(0, ans_ind), 1)[0]
+
+        ans = ans[samp_ans]
+        '''
+        for a_index in range(ans_ind, ans_end):
+            print(' y of qind ', input_data.data['y'][qind])
+            print(ans_ind, ' ', ans_end, "ans ind end" ) 
+            ans = input_data.data['y'][a_index]   
+            lh = ans[0][0][1]
+            rh = ans[0][1][1]
+            print('and the answer is ', input_data.shared['x'][artind][parind][0][lh:rh])    
                 
+        '''
+             
+ 
+        lh = ans[0][1]
+        rh = ans[1][1]
+        print('and the answer is ', input_data.shared['x'][artind][parind][0][lh:rh])    
         if (not lh < JX) or not (rh < JX):
             too_large = True
         if too_large:
@@ -1044,20 +1116,21 @@ def make_preds(input_data, sess):
         fd = {xval: xb, x_mask: x_mb, q_mask: q_mb, qval: qb, lhs_inds: np.reshape(lhsb, (1, )), rhs_inds: np.reshape( rhsb, (1,)), lhs_acts : np.reshape( lact, (1,)), rhs_acts : np.reshape( ract, (1,))  }
         
         #print("the id is ", input_data.data['ids'][qind])
-        p0_calc = sess.run([p0], feed_dict = fd)
-        p1_calc = sess.run( [p1], feed_dict= fd)
+        p0_calc = sess.run([p0_soft], feed_dict = fd)[0][0]
+        p1_calc = sess.run( [p1_soft], feed_dict= fd)[0][0]
+        start , end = find_max_prob(p0_calc, p1_calc)
         #print("p0 is ", p0_calc)
         #print( "p1 is ", p0_calc)
-        start  =  np.argmax(p0_calc)
+        #start  =  np.argmax(p0_calc)
         #print("start ind ", start)
-        end = np.argmax(p1_calc)
+        #end = np.argmax(p1_calc)
         #print("end ind ", end)
         #print("the answer is ", input_data.shared['x'][artind][parind][0][start:end])
         formatted_ans = ""
         for word in input_data.shared['x'][artind][parind][0][start:end]:
             formatted_ans += ' ' + word
         ans_dict[input_data.data['ids'][qind]] = formatted_ans
-        #print(ans_dict)
+        print('start ', start, 'end ', end)
     return ans_dict
 
 sess.run(tf.initialize_all_variables())
@@ -1066,26 +1139,31 @@ gentrain  = get_batch_data(train_data)
 
 print(train_data.shared['x'][0][1][0][0:10])
 
-for i in range(0, 5):
+for i in range(0, 20):
     xb, x_mb, q_mb,  qb, lhsb, rhsb, lact, ract = next(gentrain)
     fd = {xval: xb, x_mask: x_mb, q_mask: q_mb, qval: qb, lhs_inds: np.reshape(lhsb, (batch_size, )), rhs_inds: np.reshape( rhsb, (batch_size,)), lhs_acts : np.reshape( lact, (batch_size,)), rhs_acts : np.reshape( ract, (batch_size,))  }          
     print("iter", i)
+   
+    '''
     if i % 1000 == 0:
-        saver.save(sess, "/Users/arushigupta/Desktop/squad/output/squad_model.ckpt") 
+        saver.save(sess, "/Users/arushigupta/Desktop/squad/output/squad_modelII.ckpt") 
+    '''
+    '''
     trop, lo = sess.run([train_op, loss], feed_dict = fd)
     sess.run([ema_op], feed_dict = fd )
     print(sess.run([ambeg], feed_dict = fd))
     print(sess.run([amend], feed_dict = fd))
     print(x_mb)
     print(xb)
+    print(q_mb)
     print("p0 is ", sess.run([p0], feed_dict = fd))
     print( "p1 is ", sess.run( [p1], feed_dict= fd))
     print(lact)
     print(ract)
     print("loss ", lo)
-
+    '''
 
 
 answer_d = make_preds(dev_data, sess)
-json.dump(answer_d, open('output/answers.json', 'w'))
+json.dump(answer_d, open('output/answersII.json', 'w'))
 
